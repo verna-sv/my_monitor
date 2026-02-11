@@ -11,7 +11,7 @@ from datetime import datetime as dt
 import os  # 读取环境变量
 
 # --------------------------
-# 1. 数据库配置（异步模式）
+# 1. 数据库配置（异步模式，强制 asyncpg）
 # --------------------------
 # 从环境变量读取PostgreSQL连接字符串
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -26,11 +26,20 @@ if not DATABASE_URL:
     )
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 else:
-    # 生产环境（Vercel + Neon）：使用 asyncpg 异步连接
-    # 修复连接字符串前缀：asyncpg 需要 "postgresql+asyncpg://"
+    # 生产环境（Vercel + Neon）：强制使用 asyncpg 异步连接
+    # 修复连接字符串前缀：明确指定 asyncpg 驱动
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
-    engine = create_async_engine(DATABASE_URL, echo=False)
+    if "postgresql://" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+    
+    # 创建异步引擎，强制指定驱动
+    engine = create_async_engine(
+        DATABASE_URL,
+        echo=False,
+        future=True,
+        connect_args={"driver": "asyncpg"}  # 强制使用 asyncpg，避免加载 psycopg2
+    )
     SessionLocal = sessionmaker(
         autocommit=False,
         autoflush=False,
