@@ -1,4 +1,7 @@
 fastapi
 uvicorn
-databases[aiosqlite]
 sqlalchemy
+psycopg2-binary
+asyncpg
+jinja2
+python_multipart

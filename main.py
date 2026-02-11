@@ -7,22 +7,24 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 import datetime
 from datetime import datetime as dt
-import os  # 新增：导入os模块读取环境变量
+import os  # 读取环境变量
 
-# 1. 数据库配置 - 适配PostgreSQL和SQLite双环境
-# 从环境变量读取PostgreSQL连接字符串（Vercel/Neon）
+# --------------------------
+# 1. 数据库配置（适配双环境）
+# --------------------------
+# 从环境变量读取PostgreSQL连接字符串
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    # 本地开发时使用SQLite
+    # 本地开发：使用 SQLite
     SQLALCHEMY_DATABASE_URL = "sqlite:///./monitor.db"
     engine = create_engine(
-        SQLALCHEMY_DATABASE_URL, 
-        connect_args={"check_same_thread": False}  # SQLite特有配置
+        SQLALCHEMY_DATABASE_URL,
+        connect_args={"check_same_thread": False}  # SQLite 线程兼容
     )
 else:
-    # 生产环境（Vercel）使用PostgreSQL
-    # 修复Neon连接字符串的psycopg2适配问题
+    # 生产环境（Vercel + Neon）：使用 PostgreSQL
+    # 修复连接字符串前缀：psycopg2 需要 "postgresql://"
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     engine = create_engine(DATABASE_URL)
@@ -30,7 +32,9 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# 2. 定义数据表结构
+# --------------------------
+# 2. 数据表模型
+# --------------------------
 class Alert(Base):
     __tablename__ = "alerts"
     
@@ -41,22 +45,19 @@ class Alert(Base):
     message = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.now)
 
-# 3. 创建数据库表
+# 创建表结构
 Base.metadata.create_all(bind=engine)
 
-# 4. 创建FastAPI应用
+# --------------------------
+# 3. FastAPI 应用与路由
+# --------------------------
 app = FastAPI()
 
-# 静态文件和模板配置
+# 静态文件与模板配置
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# 5. 根路径：返回前端页面
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-# 依赖函数：获取数据库连接
+# 数据库会话依赖
 def get_db():
     db = SessionLocal()
     try:
@@ -64,7 +65,12 @@ def get_db():
     finally:
         db.close()
 
-# 6. 创建告警接口
+# 首页
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+# 创建告警
 @app.post("/alerts/")
 def create_alert(
     hostname: str,
@@ -94,7 +100,7 @@ def create_alert(
         }
     }
 
-# 7. 查询所有告警接口
+# 查询所有告警
 @app.get("/alerts/")
 def read_alerts(db: Session = Depends(get_db)):
     alerts = db.query(Alert).order_by(Alert.created_at.desc()).all()
@@ -115,7 +121,7 @@ def read_alerts(db: Session = Depends(get_db)):
         "alerts": result
     }
 
-# 阶段二新增：告警搜索接口
+# 告警搜索接口
 @app.get("/alerts/search")
 def search_alerts(
     hostname: str = None,
@@ -123,16 +129,12 @@ def search_alerts(
     end_time: str = None,
     db: Session = Depends(get_db)
 ):
-    # 初始化查询
     query = db.query(Alert)
     
-    # 1. 主机名模糊搜索
     if hostname:
         query = query.filter(Alert.hostname.like(f"%{hostname}%"))
     
-    # 2. 时间范围筛选
     if start_time:
-        # 转换前端传入的 datetime-local 格式（YYYY-MM-DDTHH:MM）为 datetime 对象
         start_dt = dt.strptime(start_time, "%Y-%m-%dT%H:%M")
         query = query.filter(Alert.created_at >= start_dt)
     
@@ -140,10 +142,8 @@ def search_alerts(
         end_dt = dt.strptime(end_time, "%Y-%m-%dT%H:%M")
         query = query.filter(Alert.created_at <= end_dt)
     
-    # 执行查询并按时间倒序排序
     alerts = query.order_by(Alert.created_at.desc()).all()
     
-    # 格式化返回结果
     result = []
     for alert in alerts:
         result.append({
@@ -160,5 +160,5 @@ def search_alerts(
         "alerts": result
     }
 
-# 关键：暴露app实例给Vercel识别
+# 关键：暴露 app 实例给 Vercel 运行时
 app = app
