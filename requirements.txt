@@ -1,7 +1,6 @@
 fastapi
-uvicorn
-sqlalchemy
-psycopg2-binary
+uvicorn[standard]
+sqlalchemy[asyncio]
 asyncpg
 jinja2
 python_multipart

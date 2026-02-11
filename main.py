@@ -2,34 +2,42 @@ from fastapi import FastAPI, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, or_, and_
+from sqlalchemy import Column, Integer, String, DateTime, select
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
 import datetime
 from datetime import datetime as dt
 import os  # 读取环境变量
 
 # --------------------------
-# 1. 数据库配置（适配双环境）
+# 1. 数据库配置（异步模式）
 # --------------------------
 # 从环境变量读取PostgreSQL连接字符串
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    # 本地开发：使用 SQLite
+    # 本地开发：使用 SQLite（同步模式）
+    from sqlalchemy import create_engine
     SQLALCHEMY_DATABASE_URL = "sqlite:///./monitor.db"
     engine = create_engine(
         SQLALCHEMY_DATABASE_URL,
-        connect_args={"check_same_thread": False}  # SQLite 线程兼容
+        connect_args={"check_same_thread": False}
     )
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 else:
-    # 生产环境（Vercel + Neon）：使用 PostgreSQL
-    # 修复连接字符串前缀：psycopg2 需要 "postgresql://"
+    # 生产环境（Vercel + Neon）：使用 asyncpg 异步连接
+    # 修复连接字符串前缀：asyncpg 需要 "postgresql+asyncpg://"
     if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    engine = create_engine(DATABASE_URL)
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    engine = create_async_engine(DATABASE_URL, echo=False)
+    SessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=engine,
+        class_=AsyncSession
+    )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 # --------------------------
@@ -45,9 +53,6 @@ class Alert(Base):
     message = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.now)
 
-# 创建表结构
-Base.metadata.create_all(bind=engine)
-
 # --------------------------
 # 3. FastAPI 应用与路由
 # --------------------------
@@ -57,27 +62,31 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# 数据库会话依赖
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# 数据库会话依赖（异步/同步兼容）
+async def get_db():
+    if isinstance(engine, create_async_engine):
+        async with SessionLocal() as session:
+            yield session
+    else:
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
 
 # 首页
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-# 创建告警
+# 创建告警（异步）
 @app.post("/alerts/")
-def create_alert(
+async def create_alert(
     hostname: str,
     metric: str,
     value: int,
     message: str,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     new_alert = Alert(
         hostname=hostname,
@@ -86,8 +95,8 @@ def create_alert(
         message=message
     )
     db.add(new_alert)
-    db.commit()
-    db.refresh(new_alert)
+    await db.commit()
+    await db.refresh(new_alert)
     
     return {
         "success": True,
@@ -100,14 +109,18 @@ def create_alert(
         }
     }
 
-# 查询所有告警
+# 查询所有告警（异步）
 @app.get("/alerts/")
-def read_alerts(db: Session = Depends(get_db)):
-    alerts = db.query(Alert).order_by(Alert.created_at.desc()).all()
+async def read_alerts(db: AsyncSession = Depends(get_db)):
+    if isinstance(engine, create_async_engine):
+        result = await db.execute(select(Alert).order_by(Alert.created_at.desc()))
+        alerts = result.scalars().all()
+    else:
+        alerts = db.query(Alert).order_by(Alert.created_at.desc()).all()
     
-    result = []
+    result_list = []
     for alert in alerts:
-        result.append({
+        result_list.append({
             "id": alert.id,
             "hostname": alert.hostname,
             "metric": alert.metric,
@@ -117,19 +130,19 @@ def read_alerts(db: Session = Depends(get_db)):
         })
     
     return {
-        "count": len(result),
-        "alerts": result
+        "count": len(result_list),
+        "alerts": result_list
     }
 
-# 告警搜索接口
+# 告警搜索接口（异步）
 @app.get("/alerts/search")
-def search_alerts(
+async def search_alerts(
     hostname: str = None,
     start_time: str = None,
     end_time: str = None,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    query = db.query(Alert)
+    query = select(Alert)
     
     if hostname:
         query = query.filter(Alert.hostname.like(f"%{hostname}%"))
@@ -142,11 +155,17 @@ def search_alerts(
         end_dt = dt.strptime(end_time, "%Y-%m-%dT%H:%M")
         query = query.filter(Alert.created_at <= end_dt)
     
-    alerts = query.order_by(Alert.created_at.desc()).all()
+    query = query.order_by(Alert.created_at.desc())
     
-    result = []
+    if isinstance(engine, create_async_engine):
+        result = await db.execute(query)
+        alerts = result.scalars().all()
+    else:
+        alerts = db.query(Alert).from_statement(query).all()
+    
+    result_list = []
     for alert in alerts:
-        result.append({
+        result_list.append({
             "id": alert.id,
             "hostname": alert.hostname,
             "metric": alert.metric,
@@ -156,8 +175,8 @@ def search_alerts(
         })
     
     return {
-        "count": len(result),
-        "alerts": result
+        "count": len(result_list),
+        "alerts": result_list
     }
 
 # 关键：暴露 app 实例给 Vercel 运行时
