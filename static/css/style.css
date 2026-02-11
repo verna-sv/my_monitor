@@ -1,0 +1,91 @@
+/* 自定义样式（保留你原有的全部代码） */
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,.1);
+    margin-bottom: 20px;
+    border: none;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #eee;
+    font-weight: 600;
+}
+
+.table th {
+    font-weight: 600;
+    color: #495057;
+    border-top: none;
+}
+
+/* 状态标签 */
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.85em;
+    font-weight: 600;
+}
+
+.status-normal {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.status-warning {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.status-critical {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+/* 表单样式 */
+#form-result {
+    min-height: 50px;
+}
+
+/* 响应式调整（原有） */
+@media (max-width: 768px) {
+    .card {
+        margin-bottom: 15px;
+    }
+}
+
+/* 第一阶段新增：图表适配样式 */
+canvas {
+    height: 250px !important; /* 固定图表高度，保证显示效果 */
+    width: 100% !important;   /* 自适应宽度 */
+}
+
+/* 响应式适配：小屏幕下图表高度自适应 */
+@media (max-width: 768px) {
+    canvas {
+        height: 200px !important; /* 小屏幕缩小图表高度 */
+    }
+}
+
+/* 图表卡片优化：和原有卡片样式统一 */
+.card .card-body canvas {
+    margin-top: 10px;
+}
+
+/* 阶段二新增：搜索表单样式优化 */
+#search-form .form-control {
+    height: calc(38px);
+}
+
+#search-form .btn {
+    height: calc(38px);
+}
+
+@media (max-width: 768px) {
+    #search-form .col-md-2 {
+        margin-top: 10px;
+    }
+}
