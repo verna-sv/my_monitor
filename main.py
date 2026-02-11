@@ -144,3 +144,4 @@ def search_alerts(
         "count": len(result),
         "alerts": result
     }
+    app=app
