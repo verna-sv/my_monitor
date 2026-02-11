@@ -1,0 +1,13 @@
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+
+# Python 缓存和虚拟环境
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# SQLite 数据库文件
+*.db

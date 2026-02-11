@@ -7,11 +7,26 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 import datetime
 from datetime import datetime as dt
+import os  # 新增：导入os模块读取环境变量
 
-# 1. 数据库配置
-SQLALCHEMY_DATABASE_URL = "sqlite:///./monitor.db"
-# 新增 check_same_thread=False 解决SQLite线程问题
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+# 1. 数据库配置 - 适配PostgreSQL和SQLite双环境
+# 从环境变量读取PostgreSQL连接字符串（Vercel/Neon）
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    # 本地开发时使用SQLite
+    SQLALCHEMY_DATABASE_URL = "sqlite:///./monitor.db"
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL, 
+        connect_args={"check_same_thread": False}  # SQLite特有配置
+    )
+else:
+    # 生产环境（Vercel）使用PostgreSQL
+    # 修复Neon连接字符串的psycopg2适配问题
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    engine = create_engine(DATABASE_URL)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -144,4 +159,6 @@ def search_alerts(
         "count": len(result),
         "alerts": result
     }
-    app=app
+
+# 关键：暴露app实例给Vercel识别
+app = app
